@@ -65,9 +65,9 @@ class Ballot(b: BallotNum, quorumSize: Int, var d: Decree, listener: ActorRef) e
   }
 
   /*
-	 * We start a new ballot by sending NextBal message to all
-	 * participants.
-	 */
+   *  We start a new ballot by sending NextBal message to all
+   * participants.
+   */
   context.actorSelection("../../*") ! NextBallotMsg(b)
 
   def receive: Receive = {
@@ -95,6 +95,9 @@ class Ballot(b: BallotNum, quorumSize: Int, var d: Decree, listener: ActorRef) e
   }
 }
 
+/**
+ * Priest conducts and participates in the ballot.
+ */
 class Priest(quorumSize: Int) extends Actor {
   val log = Logging(context.system, this)
 
