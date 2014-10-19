@@ -8,7 +8,6 @@ import akka.actor.Props
 import scala.concurrent.duration._
 import akka.actor.ReceiveTimeout
 
-
 /*
  * Three requirements:
  * B1 - Each ballot has a unique number
@@ -35,80 +34,80 @@ case class SuccessMsg(decree: Decree)
 case class GetSetValue(value: String)
 
 case class GetResultMsg()
-case class ResultMsg(num:BallotNum, quorumSize: Int, d: Decree, done: Boolean)
+case class ResultMsg(num: BallotNum, quorumSize: Int, d: Decree, done: Boolean)
 
 /*
  * Represents a ballot in progress.
  * Each ballot has its own quorum, decree that was selected and its unique number.
  */
 class Ballot(b: BallotNum, quorumSize: Int, var d: Decree, listener: ActorRef) extends Actor {
-	val log = Logging(context.system, this)
-	val votes: mutable.MutableList[ValidVote] = mutable.MutableList()
-	var quorum: Set[PriestId] = Set[PriestId]()
+  val log = Logging(context.system, this)
+  val votes: mutable.MutableList[ValidVote] = mutable.MutableList()
+  var quorum: Set[PriestId] = Set[PriestId]()
 
-	private def handleVote(q: PriestId, v: Vote) = {
-	  	if (quorum.size == quorumSize) {
-	  	  log.info("Ballot closed")
-	  	} else if (!quorum.contains(q)) {
-	  		quorum = quorum + q
-	  		v match {
-	  		  case x: ValidVote =>
-	  		  	votes += x
-	  		  case _ =>
-	  		}
-	    
-	  		if (quorum.size == quorumSize) {
-	  			log.info("Ballet ready to begin")
-	  			d = votes.sortBy { v => v.num }.lastOption.map(_.decree).getOrElse(d)
-	  			quorum.map(q => context.actorSelection("../../" + q)).foreach(a => a ! BeginBallotMsg(b, d))
-	  		}  
-	  	}
-	}
-	
-	/*
+  private def handleVote(q: PriestId, v: Vote) = {
+    if (quorum.size == quorumSize) {
+      log.info("Ballot closed")
+    } else if (!quorum.contains(q)) {
+      quorum = quorum + q
+      v match {
+        case x: ValidVote =>
+          votes += x
+        case _ =>
+      }
+
+      if (quorum.size == quorumSize) {
+        log.info("Ballet ready to begin")
+        d = votes.sortBy { v => v.num }.lastOption.map(_.decree).getOrElse(d)
+        quorum.map(q => context.actorSelection("../../" + q)).foreach(a => a ! BeginBallotMsg(b, d))
+      }
+    }
+  }
+
+  /*
 	 * We start a new ballot by sending NextBal message to all
 	 * participants.
 	 */
-	context.actorSelection("../../*") ! NextBallotMsg(b)
-	
-	def receive: Receive = {
-	  case lvm @ LastVoteMsg(b, v@NullVote(q)) =>
-	  	log.info("Got last vote message: {}", lvm)
-	    handleVote(q, v)
-	    
-	  case lvm @ LastVoteMsg(b, v@ValidVote(_, q, _)) =>
-	  	log.info("Got last vote message: {}", lvm)
-	    handleVote(q, v)
-	  	
-	  case VotedMsg(b, q) =>
-	    log.info("Received vote for ballot = {} from priest {}", b, q)
-	    if (quorum.size > 0) {
-	    	quorum -= q
-	    	if (quorum.size == 0) {
-	    		log.info("Ballot successful: received votes from all quorum members")
-	    		listener ! SuccessMsg(d)
-	    		context.actorSelection("../../*") ! SuccessMsg(d)
-	    	}
-	    }
- 
-	  case GetResultMsg =>
-	    sender ! ResultMsg(b, quorumSize, d, quorum.size == 0)
-	}
+  context.actorSelection("../../*") ! NextBallotMsg(b)
+
+  def receive: Receive = {
+    case lvm @ LastVoteMsg(b, v @ NullVote(q)) =>
+      log.info("Got last vote message: {}", lvm)
+      handleVote(q, v)
+
+    case lvm @ LastVoteMsg(b, v @ ValidVote(_, q, _)) =>
+      log.info("Got last vote message: {}", lvm)
+      handleVote(q, v)
+
+    case VotedMsg(b, q) =>
+      log.info("Received vote for ballot = {} from priest {}", b, q)
+      if (quorum.size > 0) {
+        quorum -= q
+        if (quorum.size == 0) {
+          log.info("Ballot successful: received votes from all quorum members")
+          listener ! SuccessMsg(d)
+          context.actorSelection("../../*") ! SuccessMsg(d)
+        }
+      }
+
+    case GetResultMsg =>
+      sender ! ResultMsg(b, quorumSize, d, quorum.size == 0)
+  }
 }
 
 class Priest(quorumSize: Int) extends Actor {
   val log = Logging(context.system, this)
-    
+
   var myId: PriestId = self.path.name
-  var nextBalNum:Int = -1
-  
+  var nextBalNum: Int = -1
+
   var nextBal: Option[BallotNum] = None
-  
+
   // All my previous votes
   var myVotes: mutable.MutableList[Vote] = mutable.MutableList[Vote]()
-  
+
   myVotes += NullVote(priest = myId)
-    
+
   var decrees: mutable.MutableList[Decree] = mutable.MutableList[Decree]()
 
   def receive = conductor orElse elector
@@ -120,7 +119,7 @@ class Priest(quorumSize: Int) extends Actor {
        * Even to read a value we have to conduct an election.
        */
       nextBalNum += 1
-      val b = BallotNum(myId, nextBalNum) 
+      val b = BallotNum(myId, nextBalNum)
       context.actorOf(Props(classOf[Ballot], b, 2, Decree(0, value), sender()))
   }
 

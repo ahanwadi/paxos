@@ -1,5 +1,5 @@
 package com.hanwadikar
 
 package object paxos {
-	type PriestId = String
+  type PriestId = String
 }
