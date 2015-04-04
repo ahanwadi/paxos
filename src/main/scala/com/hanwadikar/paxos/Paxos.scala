@@ -1,31 +1,36 @@
 package com.hanwadikar.paxos
 
-import akka.actor.Actor
+import akka.actor.{Actor, ActorRef, Props}
 import akka.event.Logging
+
 import scala.collection.mutable
-import akka.actor.ActorRef
-import akka.actor.Props
-import scala.concurrent.duration._
-import akka.actor.ReceiveTimeout
 
 /*
- * Three requirements:
+ * Implementation of Paxos as described in the "The Part-Time Parliament" (http://research.microsoft.com/en-us/um/people/lamport/pubs/lamport-paxos.pdf).
+ *
+ * Three requirements for Paxos based consensus:
  * B1 - Each ballot has a unique number
  * B2 - The quorum of any two ballots has at least one priest in common.
  * B3 - If any priest from the ballot's quorum has voted earlier, then decree of this ballot
- *      is same as the decree of the highest earlier ballot in which any of the priest has voted. 
+ *      is same as the decree of the latest of earlier ballots in which any of the priest has voted.
  */
 
+/**
+  * Ballot number is a pair of priest specific unique ballot number and a priest id.
+  * The ballot numbers are lexicographically ordered to maintain condition B1 above.
+  */
 case class BallotNum(priest: PriestId, ballot: Int) extends Ordered[BallotNum] {
   import scala.math.Ordered.orderingToOrdered
   def compare(that: BallotNum) = (this.ballot, this.priest) compare (that.ballot, that.priest)
 }
 
 case class Decree(num: Int, value: String)
+
 abstract class Vote(val priest: PriestId)
 case class ValidVote(num: BallotNum, override val priest: PriestId, decree: Decree) extends Vote(priest)
 case class NullVote(override val priest: PriestId) extends Vote(priest)
 
+/* Various messages exchanged by the priest during voting */
 case class NextBallotMsg(num: BallotNum)
 case class LastVoteMsg(num: BallotNum, vote: Vote)
 case class BeginBallotMsg(num: BallotNum, decree: Decree)
@@ -56,6 +61,13 @@ class Ballot(b: BallotNum, quorumSize: Int, var d: Decree, listener: ActorRef) e
         case _ =>
       }
 
+      /*
+       * To maintain B3, we wait LastVoteMsg from quorum of priests.
+       * If any of them voted earlier with a ValidVote, then we select
+       * decree to be equal to the latest of such votes.
+       * If none of them voted in an earlier ballot, we are free to choose the
+       * decree ourselves (in this case, we choose the one requested by our client).
+       */
       if (quorum.size == quorumSize) {
         log.info("Ballet ready to begin")
         d = votes.sortBy { v => v.num }.lastOption.map(_.decree).getOrElse(d)
@@ -117,13 +129,14 @@ class Priest(quorumSize: Int) extends Actor {
 
   def conductor: Receive = {
     case GetSetValue(value) =>
+      val s = sender
       log.info("Got request to get or set value: {}", value)
       /*
        * Even to read a value we have to conduct an election.
        */
       nextBalNum += 1
       val b = BallotNum(myId, nextBalNum)
-      context.actorOf(Props(classOf[Ballot], b, 2, Decree(0, value), sender()))
+      context.actorOf(Props(new Ballot(b, 2, Decree(0, value), s)))
   }
 
   def elector: Receive = {
@@ -133,8 +146,10 @@ class Priest(quorumSize: Int) extends Actor {
       log.info("Received next ballot - {}", b)
 
       /*
-       * To satisfy B2, we have to ensure that any ballot's decree is chosen
+       * To satisfy B3, we have to ensure that any ballot's decree is chosen
        * from the highest ballot in which any of the quorum priest has voted.
+       * So, if we have voted in an earlier ballot, let the initiator priest
+       * know about the decree of that vote.
        */
 
       if (nextBal.isEmpty || b > nextBal.get) {

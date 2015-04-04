@@ -1,0 +1,22 @@
+apply plugin: 'scala'
+apply plugin: 'application'
+
+mainClassName = "com.hanwadikar.paxos.PaxosDemo"
+
+ 
+repositories {
+  mavenCentral()
+}
+ 
+dependencies {
+  compile 'org.scala-lang:scala-library:2.11.5'
+}
+ 
+tasks.withType(ScalaCompile) {
+  scalaCompileOptions.useAnt = false
+}
+ 
+dependencies {
+  compile group: 'com.typesafe.akka', name: 'akka-actor_2.11', version: '2.3.9'
+  compile group: 'org.scala-lang', name: 'scala-library', version: '2.11.5'
+}
